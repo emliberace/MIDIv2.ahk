@@ -6,6 +6,7 @@ class MidiV2 {
 	_midiInChannelFilter := -1
 	_midiOutChannel := 0
 	_MIDIHDR2 := 0
+	_midiThrough := False
 	_dummyGui := Gui()
 	_callbPrefix := "MidiIn"
 	_mmcDeviceId := "7F"
@@ -54,6 +55,25 @@ class MidiV2 {
 		set {
 			if value >= 1 && value <= 16
 				this._midiOutChannel := value - 1
+		}
+	}
+	
+	MidiThrough {
+		get {
+			return this._midiThrough
+		}
+		set {
+			if value > 0 {
+				if this._h_MIDI_OUT.ptr != 0 && this._h_MIDI_IN.ptr != 0
+					this._midiThrough := True
+				else if this._h_MIDI_OUT.ptr = 0
+					MsgBox("Please open a MIDI Output port before enabling MIDI Through", "MidiThrough")
+				else if this._h_MIDI_IN.ptr = 0
+					MsgBox("Please open a MIDI Input port before enabling MIDI Through", "MidiThrough")
+			}
+			else if value = False {
+				this._midiThrough := False
+			}
 		}
 	}
 	
@@ -509,6 +529,9 @@ class MidiV2 {
 		if this._h_MIDI_IN.ptr == 0
 			return
 		
+		if this._midiThrough
+			this._midiOutShortMsg(lParam)
+		
 		midiEvent := {}
 		midiEvent.EventType := ""		
 		callbackFunctions := []
@@ -528,39 +551,53 @@ class MidiV2 {
 		
 		switch highByte, 0 {
 			case 0x80:
+				if this._midiThrough
+					this._midiOutShortMsg(lParam)
 				midiEvent.EventType := "NoteOff"
 				midiEvent.Channel := lowByte + 1
 				midiEvent.NoteNumber := data1
 				midiEvent.Velocity := data2
 				callbackFunctions.Push(Format("{}{}{}", this._callbPrefix, midiEvent.EventType, midiEvent.NoteNumber))
 			case 0x90:
+				if this._midiThrough
+					this._midiOutShortMsg(lParam)
 				midiEvent.EventType := "NoteOn"
 				midiEvent.Channel := lowByte + 1
 				midiEvent.NoteNumber := data1
 				midiEvent.Velocity := data2
 				callbackFunctions.Push(Format("{}{}{}", this._callbPrefix, midiEvent.EventType, midiEvent.NoteNumber))
 			case 0xA0:
+				if this._midiThrough
+					this._midiOutShortMsg(lParam)
 				midiEvent.EventType := "PolyPressure"
 				midiEvent.Channel := lowByte + 1
 				midiEvent.NoteNumber := data1
 				midiEvent.Pressure := data2
 				callbackFunctions.Push(Format("{}{}{}", this._callbPrefix, midiEvent.EventType, midiEvent.NoteNumber))
 			case 0xB0:
+				if this._midiThrough
+					this._midiOutShortMsg(lParam)
 				midiEvent.EventType := "ControlChange"
 				midiEvent.Channel := lowByte + 1
 				midiEvent.Controller := data1
 				midiEvent.Value := data2
 				callbackFunctions.Push(Format("{}{}{}", this._callbPrefix, midiEvent.EventType, midiEvent.Controller))
 			case 0xC0:
+				if this._midiThrough
+					this._midiOutShortMsg(lParam)
 				midiEvent.EventType := "ProgramChange"
 				midiEvent.Channel := lowByte + 1
 				midiEvent.Program := data1
 				callbackFunctions.Push(Format("{}{}{}", this._callbPrefix, midiEvent.EventType, midiEvent.Program))
 			case 0xD0:
+				if this._midiThrough
+					this._midiOutShortMsg(lParam)
 				midiEvent.EventType := "Aftertouch"
 				midiEvent.Channel := lowByte + 1
 				midiEvent.Pressure := data1
 			case 0xE0:
+				if this._midiThrough
+					this._midiOutShortMsg(lParam)
 				midiEvent.EventType := "PitchBend"
 				midiEvent.Channel := lowByte + 1
 				midiEvent.PitchBend := (data2 << 7) + data1
