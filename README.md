@@ -24,6 +24,7 @@ If you find this library useful, please consider buying me a cup of coffee! (I d
   - SysEx
   - MMC (MIDI Machine Control)
   - MIDI Time Code (Receive only)
+- MIDI Through
   
 The library also includes utility functions for handling SysEx messages.
 
