@@ -33,5 +33,9 @@ See [here](docs/index.html) for documentation of all the features of the library
 
 Simply place the MIDIv2.ahk file in in one of the script library paths. (See [here](https://www.autohotkey.com/docs/v2/Scripts.htm#lib) for more info.)
 
+### Source Code
+
+The source code for the MIDIv2 AutoHotKey library is available in the [`MIDIv2.ahk`](./MIDIv2.ahk) file.
+
 ### Prerequisites
 Requires [AutoHotKey v2](https://www.autohotkey.com/) to be installed.
