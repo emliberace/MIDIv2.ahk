@@ -36,7 +36,7 @@ Download the zip file [MIDIv2.v1.0.zip](https://github.com/emliberace/MIDIv2.ahk
 Place the MIDIv2.ahk file in one of the script library paths. (See [here](https://www.autohotkey.com/docs/v2/Scripts.htm#lib) for more info.)  
 The folder `\Doc` contains the documentation for the library in a HTML format and can be extracted anywhere.  
 The folder `\Examples` contains a number of examples of usage. Extract this folder to a location of your choice.  
-(To run one of the examples, simply double-click the .ahk file.)
+(To run one of the examples, simply double-click the .ahk file)
 
 ### Source Code
 
