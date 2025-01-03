@@ -1,9 +1,9 @@
 # MIDIv2.ahk (v1.0)
 
 
-The MIDIv2 library grants basic MIDI functionality to AutoHotKey v2.
+The MIDIv2 library grants MIDI functionality to AutoHotKey v2.
 Send and receive MIDI in your AHK scripts with ease.  
-All functions are conveniently wrapped in a single class.  
+All functions and properties are conveniently wrapped in a single class.  
 </br></br>
 If you find this library useful, please consider buying me a cup of coffee! (I do love coffee)  
 [![Buy Me a Coffee](https://img.shields.io/badge/Support-Buy%20Me%20a%20Coffee-yellow?style=flat-square&logo=buy-me-a-coffee)](https://www.buymeacoffee.com/emlib)
@@ -23,18 +23,16 @@ If you find this library useful, please consider buying me a cup of coffee! (I d
   - Program Change
   - SysEx
   - MMC (MIDI Machine Control)
-  - MIDI Time Code (Receive only)
+  - MIDI Time Code
 - MIDI Through
   
-The library also includes utility functions for handling SysEx messages.
-
 See [here](https://emliberace.github.io/MIDIv2.ahk/index.html) for detailed documentation of all the features of the library.
  
 ## Installation
 
 Download the zip file [MIDIv2.v1.0.zip](https://github.com/emliberace/MIDIv2.ahk/releases/download/v1.0/MIDIv2.v1.0.zip) and extract its content.  
-Place the MIDIv2.ahk file in one of the script library paths. (See [here](https://www.autohotkey.com/docs/v2/Scripts.htm#lib) for more info.)  
-The folder `\Doc` contains the documentation for the library in a HTML format and can be extracted anywhere.  
+Place the MIDIv2.ahk file in one of the script library paths. (See https://www.autohotkey.com/docs/v2/Scripts.htm#lib for more info.)  
+The folder `\Doc` contains the documentation for the library in a HTML format and can be extracted anywhere. (Also available online: https://emliberace.github.io/MIDIv2.ahk/index.html)  
 The folder `\Examples` contains a number of examples of usage. Extract this folder to a location of your choice.  
 (To run one of the examples, simply double-click the .ahk file.)
 
