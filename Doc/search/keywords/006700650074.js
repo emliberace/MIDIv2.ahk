@@ -1,0 +1,1 @@
+﻿NDSearch.OnPrefixDataLoaded("get",["Function"],[["GetMidiInDevices",,[[,,,,0,"File:MIDIv2.doc.ahk:GetMidiInDevices"]]],["GetMidiOutDevices",,[[,,,,0,"File:MIDIv2.doc.ahk:GetMidiOutDevices"]]]]);

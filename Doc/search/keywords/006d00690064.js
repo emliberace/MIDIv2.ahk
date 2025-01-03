@@ -1,0 +1,1 @@
+﻿NDSearch.OnPrefixDataLoaded("mid",["Section","Property","Class"],[["MIDI",,[[,"MIDI Ports",,,0,"File:MIDIv2.doc.ahk:MIDI_Ports"],[,"Receive MIDI",,,0,"File:MIDIv2.doc.ahk:Receive_MIDI"],[,"Send MIDI",,,0,"File:MIDIv2.doc.ahk:Send_MIDI"]]],["MidiThrough",,[[,,,,1,"File:MIDIv2.doc.ahk:MidiThrough"]]],["MIDIv2",,[[,,,,2,"File:MIDIv2.doc.ahk:MIDIv2","AutoHotKeyClass:MIDIv2"]]]]);
