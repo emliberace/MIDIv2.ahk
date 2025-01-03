@@ -28,7 +28,7 @@ If you find this library useful, please consider buying me a cup of coffee! (I d
   
 The library also includes utility functions for handling SysEx messages.
 
-See [here](docs/index.html) for detailed documentation of all the features of the library.
+See [here](https://emliberace.github.io/MIDIv2.ahk/index.html) for detailed documentation of all the features of the library.
  
 ## Installation
 
@@ -36,7 +36,7 @@ Download the zip file [MIDIv2.v1.0.zip](https://github.com/emliberace/MIDIv2.ahk
 Place the MIDIv2.ahk file in one of the script library paths. (See [here](https://www.autohotkey.com/docs/v2/Scripts.htm#lib) for more info.)  
 The folder `\Doc` contains the documentation for the library in a HTML format and can be extracted anywhere.  
 The folder `\Examples` contains a number of examples of usage. Extract this folder to a location of your choice.  
-(To run one of the examples, simply double-click the .ahk file)
+(To run one of the examples, simply double-click the .ahk file.)
 
 ### Source Code
 
