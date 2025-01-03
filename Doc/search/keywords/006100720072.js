@@ -1,1 +1,0 @@
-﻿NDSearch.OnPrefixDataLoaded("arr",["Function"],[["ArrayDecToSysEx",,[[,,,,0,"File:MIDIv2.doc.ahk:ArrayDecToSysEx"]]],["ArrayHexToSysEx",,[[,,,,0,"File:MIDIv2.doc.ahk:ArrayHexToSysEx"]]]]);

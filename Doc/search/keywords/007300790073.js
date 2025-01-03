@@ -1,1 +1,0 @@
-﻿NDSearch.OnPrefixDataLoaded("sys",["Section","Function"],[["SysEx",,[[,,,,0,"File:MIDIv2.doc.ahk:SysEx"]]],["SysExToText",,[[,,,,1,"File:MIDIv2.doc.ahk:SysExToText"]]]]);
