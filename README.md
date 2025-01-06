@@ -16,7 +16,7 @@ If you find this library useful, please consider buying me a cup of coffee! (I d
 - Filter incoming MIDI messages to a specific channel
 - Send and receive MIDI messages:
   - Note On/Off
-  - Continuous Controller
+  - Control Change
   - Aftertouch
   - Poly Aftertouch
   - Pitchbend
