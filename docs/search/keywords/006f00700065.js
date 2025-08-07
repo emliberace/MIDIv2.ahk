@@ -1,1 +1,0 @@
-﻿NDSearch.OnPrefixDataLoaded("ope",["Function"],[["OpenMidiIn",,[[,,,,0,"File:MIDIv2.doc.ahk:OpenMidiIn"]]],["OpenMidiOut",,[[,,,,0,"File:MIDIv2.doc.ahk:OpenMidiOut"]]]]);

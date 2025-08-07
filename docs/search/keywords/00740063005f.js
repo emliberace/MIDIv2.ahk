@@ -1,1 +1,0 @@
-﻿NDSearch.OnPrefixDataLoaded("tc_",["Property","Function"],[["TC_enabled",,[[,,,,0,"File:MIDIv2.doc.ahk:TC_enabled"]]],["TC_Full",,[[,,,,1,"File:MIDIv2.doc.ahk:TC_Full"]]],["TC_RunningFull",,[[,,,,1,"File:MIDIv2.doc.ahk:TC_RunningFull"]]]]);

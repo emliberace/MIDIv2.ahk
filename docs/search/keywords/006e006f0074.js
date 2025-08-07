@@ -1,1 +1,0 @@
-﻿NDSearch.OnPrefixDataLoaded("not",["Function"],[["NoteOff",,[[,,,,0,"File:MIDIv2.doc.ahk:NoteOff"]]],["NoteOn",,[[,,,,0,"File:MIDIv2.doc.ahk:NoteOn"]]]]);
