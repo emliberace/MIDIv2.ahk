@@ -1,4 +1,4 @@
-# MIDIv2.ahk (v1.0)
+# MIDIv2.ahk (v1.1)
 
 
 The MIDIv2 library grants MIDI functionality to AutoHotKey v2.
@@ -17,6 +17,7 @@ If you find this library useful, please consider buying me a cup of coffee! (I d
 - Send and receive MIDI messages:
   - Note On/Off
   - Control Change
+  - RPN/NRPN
   - Aftertouch
   - Poly Aftertouch
   - Pitchbend
@@ -24,13 +25,14 @@ If you find this library useful, please consider buying me a cup of coffee! (I d
   - SysEx
   - MMC (MIDI Machine Control)
   - MIDI Time Code
+  - SRT (System Real Time)
 - MIDI Through
   
 See [here](https://emliberace.github.io/MIDIv2.ahk/index.html) for detailed documentation of all the features of the library.
  
 ## Installation
 
-Download the zip file [MIDIv2.v1.0.zip](https://github.com/emliberace/MIDIv2.ahk/releases/download/v1.0/MIDIv2.v1.0.zip) and extract its content.  
+Download the zip file [MIDIv2.v1.1.zip](https://github.com/emliberace/MIDIv2.ahk/releases/download/v1.1/MIDIv2.v1.1.zip) and extract its content.  
 Place the MIDIv2.ahk file in one of the script library paths. (See https://www.autohotkey.com/docs/v2/Scripts.htm#lib for more info.)  
 The folder `\Doc` contains the documentation for the library in a HTML format and can be extracted anywhere. (Also available online: https://emliberace.github.io/MIDIv2.ahk/index.html)  
 The folder `\Examples` contains a number of examples of usage. Extract this folder to a location of your choice.  
