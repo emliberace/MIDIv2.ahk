@@ -9,7 +9,7 @@ All notable changes to this project will be documented in this file.
     - SysExInputBufferSize
 	 
 ### Changed
-- Incoming SysEx messages now uses multiple buffers which enables larger sized messages to be received
+- Incoming SysEx messages now use multiple buffers which enables larger sized messages to be received
 - Minor code cleanup
 
 ## [v1.1] - 2025-08-07
@@ -50,3 +50,4 @@ All notable changes to this project will be documented in this file.
 ## [v1.0] - 2025-01-02
 ### Initial Release
 - First public release of the project.
+
