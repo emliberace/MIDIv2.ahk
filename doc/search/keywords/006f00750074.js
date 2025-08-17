@@ -1,1 +1,0 @@
-﻿NDSearch.OnPrefixDataLoaded("out",["Property"],[["OutputChannel",,[[,,,,0,"File:MIDIv2.doc.ahk:OutputChannel"]]]]);

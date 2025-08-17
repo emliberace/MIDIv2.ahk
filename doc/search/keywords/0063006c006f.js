@@ -1,1 +1,0 @@
-﻿NDSearch.OnPrefixDataLoaded("clo",["Function"],[["CloseMidiIn",,[[,,,,0,"File:MIDIv2.doc.ahk:CloseMidiIn"]]],["CloseMidiOut",,[[,,,,0,"File:MIDIv2.doc.ahk:CloseMidiOut"]]]]);

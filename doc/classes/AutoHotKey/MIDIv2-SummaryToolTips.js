@@ -1,1 +1,0 @@
-﻿NDSummary.OnToolTipsLoaded("AutoHotKeyClass:MIDIv2",{});
