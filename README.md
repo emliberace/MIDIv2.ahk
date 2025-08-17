@@ -32,7 +32,7 @@ See [here](https://emliberace.github.io/MIDIv2.ahk/index.html) for detailed docu
  
 ## Installation
 
-Download the zip file [MIDIv2.v1.1.zip](https://github.com/emliberace/MIDIv2.ahk/releases/download/v1.1/MIDIv2.v1.1.zip) and extract its content.  
+Download the zip file [MIDIv2.v1.1.2.zip](https://github.com/emliberace/MIDIv2.ahk/releases/download/v1.1.2/MIDIv2.v1.1.2.zip) and extract its content.  
 Place the MIDIv2.ahk file in one of the script library paths. (See https://www.autohotkey.com/docs/v2/Scripts.htm#lib for more info.)  
 The folder `\Doc` contains the documentation for the library in a HTML format and can be extracted anywhere. (Also available online: https://emliberace.github.io/MIDIv2.ahk/index.html)  
 The folder `\Examples` contains a number of examples of usage. Extract this folder to a location of your choice.  
