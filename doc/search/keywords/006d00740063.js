@@ -1,1 +1,0 @@
-﻿NDSearch.OnPrefixDataLoaded("mtc",["Section"],[["MTC",,[[,"MMC &amp; MTC",,"mmc&mtc",0,"File:MIDIv2.doc.ahk:MMC_MTC"]]]]);

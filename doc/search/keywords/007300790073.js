@@ -1,1 +1,0 @@
-﻿NDSearch.OnPrefixDataLoaded("sys",["Section","Property","Function"],[["SysEx",,[[,,,,0,"File:MIDIv2.doc.ahk:SysEx"]]],["SysExInputBuffers",,[[,,,,1,"File:MIDIv2.doc.ahk:SysExInputBuffers"]]],["SysExInputBufferSize",,[[,,,,1,"File:MIDIv2.doc.ahk:SysExInputBufferSize"]]],["SysExToText",,[[,,,,2,"File:MIDIv2.doc.ahk:SysExToText"]]]]);

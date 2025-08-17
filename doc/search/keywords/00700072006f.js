@@ -1,1 +1,0 @@
-﻿NDSearch.OnPrefixDataLoaded("pro",["Function","Section"],[["ProgramChange",,[[,,,,0,"File:MIDIv2.doc.ahk:ProgramChange"]]],["Properties",,[[,"Class Properties",,,1,"File:MIDIv2.doc.ahk:Class_Properties"]]]]);
