@@ -1,0 +1,1 @@
+﻿NDSearch.OnPrefixDataLoaded("cla",["Section"],[["Class",,[[,"Class Properties",,,0,"File:MIDIv2.doc.ahk:Class_Properties"]]]]);
