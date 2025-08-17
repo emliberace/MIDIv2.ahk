@@ -1,0 +1,1 @@
+﻿NDFramePage.OnPageTitleLoaded("AutoHotKeyClass:MIDIv2","MIDIv2");NDSummary.OnSummaryLoaded("AutoHotKeyClass:MIDIv2",[["AutoHotKey","AutoHotKey"]],[["Classes","Class"]],[[1,0,0,"MIDIv2"]]);
