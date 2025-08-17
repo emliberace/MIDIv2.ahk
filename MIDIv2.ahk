@@ -1,23 +1,27 @@
-;MIDIv2.ahk v1.1
+;MIDIv2.ahk v1.1.2
 class MIDIv2 {
-	_h_MIDI_OUT := {}
-	_h_MIDI_OUT.ptr := 0
-	_h_MIDI_IN := {}
-	_h_MIDI_IN.ptr := 0
+	_hMidiOut := 0
+	_hMidiIn := 0
 	_midiInChannelFilter := -1
 	_midiOutChannel := 0
-	_MIDIHDR2 := 0
+	_midiHdrSize := 0
+	_bufferSize := 64
+	_nbrOfBuffers := 16
+	_buffers := []
+	_sysExBuf := 0
+	_sysExDataLen := 0
+	_sysExBufSize := 0
 	_midiThrough := False
-	_dummyGui := Gui()
+	_frameRatesTable := [24.0, 25.0, 29.97, 30.0]
 	_callbPrefix := "MidiIn"
 	_mmcDeviceId := "7F"
 	_frameRateCode := 0
-	_mmcEnabled := False
-	_tcEnabled := False
-	_srtEnabled := False
-	_rpnEnabled := False
-	_nrpnEnabled := False
-	_pnStruct := {
+	_isMmcEnabled := False
+	_isTcEnabled := False
+	_isSrtEnabled := False
+	_isRpnEnabled := False
+	_isNrpnEnabled := False
+	_pnTemplate := {
 		param: 0,
 		value: 0,
 		paramsSet: 0,
@@ -25,39 +29,26 @@ class MIDIv2 {
 	}
 	_RPN := []
 	_NRPN := []
-	_RPNNRPN_LastParam := []
+	_lastRpnNrpnParam := []
 	
 	__New() {
 		OutputDebug "New MIDIv2 instance created"
+		
+		this._midiHdrSize := (A_PtrSize = 8) ? 120 : 64  ; common sizes
 		
 		this._callbackShort := ObjBindMethod(this, "_midiInCallback")
 		this._callbackLong := ObjBindMethod(this, "_midiInSysExCallback")
 		this._callbackMore := ObjBindMethod(this, "_midiInMoreData")
 		this._callbackError := ObjBindMethod(this, "_midiInError")
 		this._callbackLongError := ObjBindMethod(this, "_midiInLongError")
-		
-		this._dummyGui.Opt("+LastFound")
-		this._hWnd := WinExist()
+		this._callbackSysExDone := ObjBindMethod(this, "_onSysExDone")
 		
 		; Initialize RPN/NRPN data structures
 		Loop 16 {
-			this._RPN.Push(this._pnStruct.Clone())
-			this._NRPN.Push(this._pnStruct.Clone())
-			this._RPNNRPN_LastParam.Push("")
+			this._RPN.Push(this._pnTemplate.Clone())
+			this._NRPN.Push(this._pnTemplate.Clone())
+			this._lastRpnNrpnParam.Push("")
 		}
-		
-		buffer_size := 64000   ; Up to 64k
-		this._midiInBuffer := Buffer(buffer_size)
-		this._MIDIHDR2 := Buffer(12 * A_PtrSize)
-		NumPut("Ptr", this._midiInBuffer.Ptr, this._MIDIHDR2, 0)
-		NumPut("UInt", buffer_size, this._MIDIHDR2, A_PtrSize)
-		NumPut("UInt", 0, this._MIDIHDR2, 2 * A_PtrSize)	; dwBytesRecorded
-		NumPut("Ptr", 0, this._MIDIHDR2, 3 * A_PtrSize)		; dwUser
-		NumPut("UInt", 0, this._MIDIHDR2, 4 * A_PtrSize)	; dwFlags
-		NumPut("Ptr", 0, this._MIDIHDR2, 5 * A_PtrSize)		; lpNext
-		NumPut("Ptr", 0, this._MIDIHDR2, 6 * A_PtrSize)		; reserved
-		
-		DllCall("LoadLibrary", "Str", "winmm.dll", "Ptr")			
 	}
 	
 	InputChannel {
@@ -65,8 +56,11 @@ class MIDIv2 {
 			return this._midiInChannelFilter + 1
 		}
 		set {
-			if value >= 0 && value <= 16
+			if (value >= 0 && value <= 16) {
 				this._midiInChannelFilter := value - 1
+			} else {
+				MsgBox("Invalid parameter!", "MIDIv2 - InputChannel", 48)
+			}
 		}
 	}
 	
@@ -75,8 +69,11 @@ class MIDIv2 {
 			return this._midiOutChannel + 1
 		}
 		set {
-			if value >= 1 && value <= 16
+			if (value >= 1 && value <= 16) {
 				this._midiOutChannel := value - 1
+			} else {
+				MsgBox("Invalid parameter!", "MIDIv2 - OutputChannel", 48)
+			}
 		}
 	}
 	
@@ -85,15 +82,15 @@ class MIDIv2 {
 			return this._midiThrough
 		}
 		set {
-			if value > 0 {
-				if this._h_MIDI_OUT.ptr != 0 && this._h_MIDI_IN.ptr != 0
+			if (value > 0) {
+				if (this._hMidiOut != 0 && this._hMidiIn != 0) {
 					this._midiThrough := True
-				else if this._h_MIDI_OUT.ptr = 0
-					MsgBox("Please open a MIDI Output port before enabling MIDI Through", "MIDIv2 - MidiThrough", "48")
-				else if this._h_MIDI_IN.ptr = 0
-					MsgBox("Please open a MIDI Input port before enabling MIDI Through", "MIDIv2 - MidiThrough", "48")
-			}
-			else if value = False {
+				} else if (this._hMidiOut = 0) {
+					MsgBox("Please open a MIDI Output port before enabling MIDI Through", "MIDIv2 - MidiThrough", 48)
+				} else if (this._hMidiIn = 0) {
+					MsgBox("Please open a MIDI Input port before enabling MIDI Through", "MIDIv2 - MidiThrough", 48)
+				}
+			} else if (value = False) {
 				this._midiThrough := False
 			}
 		}
@@ -104,20 +101,27 @@ class MIDIv2 {
 			return this._callbPrefix
 		}
 		set {
-			this._callbPrefix := value
+			if (type(value) == "String") {
+				firstChar := SubStr(value, 1, 1)
+				if (!IsInteger(firstChar)) {
+					this._callbPrefix := value
+					return
+				}
+			}
+			MsgBox("Invalid parameter!", "MIDIv2 - CallbackPrefix", 48)
 		}
 	}
 	
 	MMC_Enabled {
 		get {
-			return this._mmcEnabled
+			return this._isMmcEnabled
 		}
 		set {
-			if Type(value) != "Integer" {
-				MsgBox("Invalid parameter!", "MIDIv2 - MMC_enabled", "48")
+			if (Type(value) != "Integer") {
+				MsgBox("Invalid parameter!", "MIDIv2 - MMC_enabled", 48)
 				return
 			}
-			this._mmcEnabled := (value > 0) ? 1 : 0
+			this._isMmcEnabled := (value > 0) ? 1 : 0
 		}
 	}
 	
@@ -126,8 +130,8 @@ class MIDIv2 {
 			return Number("0x" this._mmcDeviceId)
 		}
 		set {
-			if Type(value) != "Integer" {
-				MsgBox("Invalid parameter!", "MIDIv2 - MMC_deviceID", "48")
+			if (Type(value) != "Integer") {
+				MsgBox("Invalid parameter!", "MIDIv2 - MMC_deviceID", 48)
 				return
 			}
 			this._mmcDeviceId := Format("{:02X}", value)
@@ -136,66 +140,93 @@ class MIDIv2 {
 	
 	TC_Enabled {
 		get {
-			return this._tcEnabled
+			return this._isTcEnabled
 		}
 		set {
-			if Type(value) != "Integer" {
-				MsgBox("Invalid parameter!", "MIDIv2 - TC_enabled", "48")
+			if (Type(value) != "Integer") {
+				MsgBox("Invalid parameter!", "MIDIv2 - TC_enabled", 48)
 				return
 			}
-			this._tcEnabled := (value > 0) ? 1 : 0			
+			this._isTcEnabled := (value > 0) ? 1 : 0			
 		}
 	}
 	
 	SRT_Enabled {
 		get {
-			return this._srtEnabled
+			return this._isSrtEnabled
 		}
 		set {
-			if Type(value) != "Integer" {
-				MsgBox("Invalid parameter!", "MIDIv2 - SRT_Enabled", "48")
+			if (Type(value) != "Integer") {
+				MsgBox("Invalid parameter!", "MIDIv2 - SRT_Enabled", 48)
 				return
 			}
-			this._srtEnabled := (value > 0) ? 1 : 0			
+			this._isSrtEnabled := (value > 0) ? 1 : 0			
 		}
 	}
 	
 	RPN_Enabled {
 		get {
-			return this._rpnEnabled
+			return this._isRpnEnabled
 		}
 		set {
-			if Type(value) != "Integer" {
-				MsgBox("Invalid parameter!", "MIDIv2 - RPN_Enabled", "48")
+			if (Type(value) != "Integer") {
+				MsgBox("Invalid parameter!", "MIDIv2 - RPN_Enabled", 48)
 				return
 			}
-			this._rpnEnabled := (value > 0) ? 1 : 0			
+			this._isRpnEnabled := (value > 0) ? 1 : 0			
 		}
 	}
 	
 	NRPN_Enabled {
 		get {
-			return this._nrpnEnabled
+			return this._isNrpnEnabled
 		}
 		set {
-			if Type(value) != "Integer" {
-				MsgBox("Invalid parameter!", "NRPN_Enabled", "48")
+			if (Type(value) != "Integer") {
+				MsgBox("Invalid parameter!", "NRPN_Enabled", 48)
 				return
 			}
-			this._nrpnEnabled := (value > 0) ? 1 : 0			
+			this._isNrpnEnabled := (value > 0) ? 1 : 0			
 		}
 	}
 	
-	RunningStatus_Enabled {
+	SysExInputBuffers {
 		get {
-			return this._runningStatusEnabled
+			return this._nbrOfBuffers
 		}
 		set {
-			if Type(value) != "Integer" {
-				MsgBox("Invalid parameter!", "RunningStatus_Enabled", "48")
+			if (Type(value) != "Integer") {
+				MsgBox("Invalid parameter!", "SysExInputBuffers", 48)
 				return
 			}
-			this._runningStatusEnabled := (value > 0) ? 1 : 0
+			if (value < 1) {
+				MsgBox("Invalid parameter!`nValue less than 1.", "SysExInputBuffers", 48)
+				return
+			}
+			this._nbrOfBuffers := value
+			if (this._hMidiIn != 0) {
+				this._createSysExBuffers()
+			}
+		}
+	}
+	
+	SysExInputBufferSize {
+		get {
+			return this._bufferSize
+		}
+		set {
+			if (Type(value) != "Integer") {
+				MsgBox("Invalid parameter!", "SysExInputBufferSize", 48)
+				return
+			}
+			if (value < 1) {
+				MsgBox("Invalid parameter!`nValue less than 1.", "SysExInputBufferSize", 48)
+				return
+			}
+			this._bufferSize := value
+			if (this._hMidiIn != 0) {
+				this._createSysExBuffers()
+			}
 		}
 	}
 	
@@ -209,8 +240,8 @@ class MIDIv2 {
 			midiStruct := Buffer(MIDI_DEVICE_STRUCT_LENGTH, 0)
 			result := DllCall("winmm.dll\midiInGetDevCapsA", "UInt", deviceNumber, "Ptr", midiStruct.Ptr, "UInt", MIDI_DEVICE_STRUCT_LENGTH, "UInt")
 
-			if result != 0 {
-				MsgBox("Failed to query MIDI in device.`nDevice number=" deviceNumber, "MIDIv2 - GetMidiInDevices", "48")
+			if (result != 0) {
+				MsgBox("Failed to query MIDI in device.`nDevice number=" deviceNumber, "MIDIv2 - GetMidiInDevices", 48)
 				return []
 			}
 
@@ -230,46 +261,53 @@ class MIDIv2 {
 			midiStruct := Buffer(MIDI_DEVICE_STRUCT_LENGTH, 0)
 			result := DllCall("winmm.dll\midiOutGetDevCapsA", "UInt", deviceNumber, "Ptr", midiStruct.Ptr, "UInt", MIDI_DEVICE_STRUCT_LENGTH, "UInt")
 
-			if result != 0 {
-				MsgBox("Failed to query MIDI out device.`nDevice number=" deviceNumber, "MIDIv2 - GetMidiOutDevices", "48")
+			if (result != 0) {
+				MsgBox("Failed to query MIDI out device.`nDevice number=" deviceNumber, "MIDIv2 - GetMidiOutDevices", 48)
 				return []
 			}
 
 			deviceName := StrGet(midiStruct.Ptr + 8, "CP0")
 			midiDevices.Push(deviceName)
 		}
-
 		return midiDevices
 	}
 	
 	OpenMidiOut(devID) {
-		result := DllCall("winmm.dll\midiOutOpen", "Ptr*", this._h_MIDI_OUT, "UInt", devID, "Ptr", 0, "Ptr", 0, "UInt", 0)
-		if result != 0
-			MsgBox("There was an error opening the MIDI Out port with ID=" devID "`nError code: " result, "MIDIv2 - OpenMidiOut", "48")
+		hMidiOut := 0
+		result := DllCall("winmm.dll\midiOutOpen", "Ptr*", &hMidiOut, "UInt", devID, "Ptr", 0, "Ptr", 0, "UInt", 0)
+		if (result != 0) {
+			MsgBox("Error opening MIDI Out port with ID=" devID "`nError code: " result, "MIDIv2 - OpenMidiOut", 48)
+			this._hMidiOut := 0
+		} else {
+			this._hMidiOut := hMidiOut
+		}
 	}
 	
 	CloseMidiOut() {
-		if this._h_MIDI_OUT.ptr == 0
+		if (this._hMidiOut = 0) {
 			return
+		}
 		
-		result := DllCall("winmm.dll\midiOutReset", "UInt", this._h_MIDI_OUT.ptr)
-		if result != 0 {
-			MsgBox("There was an Error resetting the MIDI Out port.`nError code: " result "This application will now close!", "MIDIv2 - CloseMidiOut", "16")
+		result := DllCall("winmm.dll\midiOutReset", "Ptr", this._hMidiOut)
+		if (result != 0) {
+			MsgBox("Error resetting the MIDI Out port.`nError code: " result "This application will now close!", "MIDIv2 - CloseMidiOut", 16)
 			ExitApp
 		}
 		
-		result := DllCall("winmm.dll\midiOutClose", "UInt", this._h_MIDI_OUT.ptr)
-		if result != 0 {
-			MsgBox("There was an Error closing the MIDI Out port.`nError code: " result "This application will now close!", "MIDIv2 - CloseMidiOut", "16")
+		result := DllCall("winmm.dll\midiOutClose", "Ptr", this._hMidiOut)
+		if (result != 0) {
+			MsgBox("Error closing the MIDI Out port.`nError code: " result "This application will now close!", "MIDIv2 - CloseMidiOut", 16)
 			ExitApp
 		}
-		this._h_MIDI_OUT.ptr := 0
+		this._hMidiOut := 0
 	}
 	
 	SendNoteOff(noteValue, velocity:=64, channel:=-1)	{
-		if (noteValue < 0 || noteValue > 127) || (velocity < 0 || velocity > 127) || (channel != -1 && (channel < 1 || channel > 16))
+		if (noteValue < 0 || noteValue > 127) || (velocity < 0 || velocity > 127) || (channel != -1 && (channel < 1 || channel > 16)) {
+			MsgBox("Invalid parameter!", "MIDIv2 - SendNoteOff", 48)
 			return
-		if channel == -1 {
+		}
+		if (channel = -1) {
 			channel:=this._midiOutChannel
 		} else {
 			channel--
@@ -278,9 +316,11 @@ class MIDIv2 {
 	}
 	
 	SendNoteOn(noteValue, velocity:=127, channel:=-1) {
-		if (noteValue < 0 || noteValue > 127) || (velocity < 0 || velocity > 127) || (channel != -1 && (channel < 1 || channel > 16))
+		if (noteValue < 0 || noteValue > 127) || (velocity < 0 || velocity > 127) || (channel != -1 && (channel < 1 || channel > 16)) {
+			MsgBox("Invalid parameter!", "MIDIv2 - SendNoteOn", 48)
 			return
-		if channel == -1 {
+		}
+		if (channel = -1) {
 			channel := this._midiOutChannel
 		} else {
 			channel--
@@ -289,9 +329,11 @@ class MIDIv2 {
 	}
 	
 	SendPolyPressure(noteValue, value, channel:=-1) {
-		if (noteValue < 0 || noteValue > 127) || (value < 0 || value > 127) || (channel != -1 && (channel < 1 || channel > 16))
+		if (noteValue < 0 || noteValue > 127) || (value < 0 || value > 127) || (channel != -1 && (channel < 1 || channel > 16)) {
+			MsgBox("Invalid parameter!", "MIDIv2 - SendPolyPressure", 48)
 			return
-		if channel == -1 {
+		}
+		if (channel = -1) {
 			channel := this._midiOutChannel
 		} else {			
 			channel--
@@ -300,9 +342,11 @@ class MIDIv2 {
 	}
 	
 	SendControlChange(controller, value, channel := -1) {
-		if (controller < 0 || controller > 127) || (value < 0 || value > 127) || (channel != -1 && (channel < 1 || channel > 16))
+		if (controller < 0 || controller > 127) || (value < 0 || value > 127) || (channel != -1 && (channel < 1 || channel > 16)) {
+			MsgBox("Invalid parameter!", "MIDIv2 - SendControlChange", 48)
 			return
-		if channel == -1 {
+		}
+		if (channel = -1) {
 			channel := this._midiOutChannel
 		} else {
 			channel--
@@ -311,9 +355,11 @@ class MIDIv2 {
 	}
 	
 	SendControlChangePair(controller, value, channel := -1) {
-		if (controller < 0 || controller > 31) || (value < 0 || value > 16383) || (channel != -1 && (channel < 1 || channel > 16))
+		if (controller < 0 || controller > 31) || (value < 0 || value > 16383) || (channel != -1 && (channel < 1 || channel > 16)) {
+			MsgBox("Invalid parameter!", "MIDIv2 - SendControlChangePair", 48)
 			return
-		if channel == -1 {
+		}
+		if (channel = -1) {
 			channel := this._midiOutChannel
 		} else {
 			channel--
@@ -326,9 +372,11 @@ class MIDIv2 {
 	}
 	
 	SendProgramChange(program, channel := -1) {
-		if (program < 0 || program > 127) || (channel != -1 && (channel < 1 || channel > 16))
+		if (program < 0 || program > 127) || (channel != -1 && (channel < 1 || channel > 16)) {
+			MsgBox("Invalid parameter!", "MIDIv2 - SendProgramChange", 48)
 			return
-		if channel == -1 {
+		}
+		if (channel = -1) {
 			channel := this._midiOutChannel
 		} else {
 			channel--
@@ -337,9 +385,11 @@ class MIDIv2 {
 	}
 	
 	SendAftertouch(value, channel := -1) {
-		if (value < 0 || value > 127) || (channel != -1 && (channel < 1 || channel > 16))
+		if (value < 0 || value > 127) || (channel != -1 && (channel < 1 || channel > 16)) {
+			MsgBox("Invalid parameter!", "MIDIv2 - SendAftertouch", 48)
 			return
-		if channel == -1 {
+		}
+		if (channel = -1) {
 			channel := this._midiOutChannel
 		} else {
 			channel--
@@ -348,9 +398,11 @@ class MIDIv2 {
 	}
 	
 	SendPitchbend(value, channel := -1) {
-		if (value < 0 || value > 16383) || (channel != -1 && (channel < 1 || channel > 16))
+		if (value < 0 || value > 16383) || (channel != -1 && (channel < 1 || channel > 16)) {
+			MsgBox("Invalid parameter!", "MIDIv2 - SendPitchbend", 48)
 			return
-		if channel == -1 {
+		}
+		if (channel = -1) {
 			channel := this._midiOutChannel
 		} else {
 			channel--
@@ -360,10 +412,10 @@ class MIDIv2 {
 	
 	SendRPN(parameter, value, channel := -1) {
 		if (parameter < 0 || parameter > 16383) || (value < 0 || value > 16383) || (channel != -1 && (channel < 1 || channel > 16)) {
-			MsgBox("Invalid parameter!", "MIDIv2 - SendRPN", "48")
+			MsgBox("Invalid parameter!", "MIDIv2 - SendRPN", 48)
 			return
 		}
-		if channel == -1 {
+		if (channel = -1) {
 			channel := this._midiOutChannel
 		} else {
 			channel--
@@ -380,10 +432,10 @@ class MIDIv2 {
 	
 	SendNRPN(parameter, value, channel := -1) {
 		if (parameter < 0 || parameter > 16383) || (value < 0 || value > 16383) || (channel != -1 && (channel < 1 || channel > 16)) {
-			MsgBox("Invalid parameter!", "MIDIv2 - SendNRPN", "48")
+			MsgBox("Invalid parameter!", "MIDIv2 - SendNRPN", 48)
 			return
 		}
-		if channel == -1 {
+		if (channel = -1) {
 			channel := this._midiOutChannel
 		} else {
 			channel--
@@ -450,16 +502,16 @@ class MIDIv2 {
 				try {
 					arrV := StrSplit(timeCode, ":")
 				} catch {
-					MsgBox("MMC_TimeCode - Incorrect String format`nFailed to create Array", "MIDIv2 - MMC_Locate", "48")
+					MsgBox("MMC_TimeCode - Incorrect String format`nFailed to create Array", "MIDIv2 - MMC_Locate", 48)
 					return
 				}
-				if arrV.Length != 4 {
-					MsgBox("MMC_TimeCode - Incorrect String format`nIncorrect number of elements", "MIDIv2 - MMC_Locate", "48")
+				if (arrV.Length != 4) {
+					MsgBox("Incorrect String format`nIncorrect number of elements", "MIDIv2 - MMC_Locate", 48)
 					return
 				}					
 			case "Array":
-				if timeCode.Length != 4 {
-					MsgBox("MMC_TimeCode - Incorrect Array length", "MIDIv2 - MMC_Locate", "48")
+				if (timeCode.Length != 4) {
+					MsgBox("Incorrect Array length", "MIDIv2 - MMC_Locate", 48)
 					return
 				}
 				arrV := timeCode
@@ -504,48 +556,62 @@ class MIDIv2 {
 	
 	; SysEx +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
    SendSysEx(sysexString) {
+		if this._hMidiOut = 0 {
+			MsgBox("Sending MIDI failed!`nNo MIDI Out port opened.", "MIDIv2 - SendSysEx", 48)
+			return
+		}
       ; Convert the string to a buffer
       sysexArray := StrSplit(sysexString, " ")
       bufferSize := sysexArray.Length
       sysExBuffer := Buffer(bufferSize)
       
       Loop bufferSize {
-         NumPut("UChar", "0x" sysexArray[A_Index], sysExBuffer, A_Index - 1)
+			try {
+				NumPut("UChar", "0x" sysexArray[A_Index], sysExBuffer, A_Index - 1)
+			} catch {
+				MsgBox("Failed to populate SysEx buffer.`nSpecifically: 0x" sysexArray[A_Index] "`nIndex=" A_Index, "MIDIv2 - SendSysEx", 48)
+				sysExBuffer := 0
+				return
+			}
       }
 
       ; Prepare the MIDIHDR structure
       MIDIHDR := Buffer(12 * A_PtrSize)
       NumPut("Ptr", sysExBuffer.ptr, MIDIHDR, 0)
       NumPut("UInt", bufferSize, MIDIHDR, A_PtrSize)
-      NumPut("UInt", 0, MIDIHDR, 2 * A_PtrSize)  ; dwBytesRecorded
-      NumPut("Ptr", 0, MIDIHDR, 3 * A_PtrSize)  ; dwUser
-      NumPut("UInt", 0, MIDIHDR, 4 * A_PtrSize)  ; dwFlags
-      NumPut("Ptr", 0, MIDIHDR, 5 * A_PtrSize)  ; lpNext
-      NumPut("Ptr", 0, MIDIHDR, 6 * A_PtrSize)  ; reserved
+      NumPut("UInt", 0, MIDIHDR, 2 * A_PtrSize)	; dwBytesRecorded
+      NumPut("Ptr", 0, MIDIHDR, 3 * A_PtrSize)	; dwUser
+      NumPut("UInt", 0, MIDIHDR, 4 * A_PtrSize)	; dwFlags
+      NumPut("Ptr", 0, MIDIHDR, 5 * A_PtrSize)	; lpNext
+      NumPut("Ptr", 0, MIDIHDR, 6 * A_PtrSize)	; reserved
 
       ; Prepare SysEx header
-      result := DllCall("winmm.dll\midiOutPrepareHeader", "Ptr", this._h_MIDI_OUT, "Ptr", MIDIHDR, "UInt", 12 * A_PtrSize)
-      if result != 0 {
-         MsgBox("There was an error preparing the system-exclusive message header `nresult = " result, "MIDIv2 - SendSysEx", "48")
+      result := DllCall("winmm.dll\midiOutPrepareHeader", "Ptr", this._hMidiOut, "Ptr", MIDIHDR, "UInt", 12 * A_PtrSize)
+      if (result != 0) {
+         MsgBox("Error preparing the SysEx message header `nresult = " result, "MIDIv2 - SendSysEx", 48)
+			sysExBuffer := 0
          return
       }
       ; Send the SysEx message
-      result := DllCall("winmm.dll\midiOutLongMsg", "Ptr", this._h_MIDI_OUT, "Ptr", MIDIHDR, "UInt", 12 * A_PtrSize)
-      if result != 0 {
-         MsgBox("There was an error sending the system-exclusive message `nresult = " result, "MIDIv2 - SendSysEx", "48")
-         return
+      result := DllCall("winmm.dll\midiOutLongMsg", "Ptr", this._hMidiOut, "Ptr", MIDIHDR, "UInt", 12 * A_PtrSize)
+      if (result != 0) {
+         MsgBox("Error sending SysEx message `nresult = " result, "MIDIv2 - SendSysEx", 48)
+         sysExBuffer := 0
+			return
       }
       ; Unprepare the header after sending the message
-      result := DllCall("winmm.dll\midiOutUnprepareHeader", "Ptr", this._h_MIDI_OUT, "Ptr", MIDIHDR, "UInt", 12 * A_PtrSize)
-      if result != 0 {
-         MsgBox("There was an error unpreparing the system-exclusive message header `nresult = " result, "MIDIv2 - SendSysEx", "48")
+      result := DllCall("winmm.dll\midiOutUnprepareHeader", "Ptr", this._hMidiOut, "Ptr", MIDIHDR, "UInt", 12 * A_PtrSize)
+      if (result != 0) {
+         MsgBox("Error unpreparing the SysEx message header `nresult = " result, "MIDIv2 - SendSysEx", 48)
+         sysExBuffer := 0
+			return
       }
    }
 	
 	; SysEx utlility functions ++++++++++++++++++++++++++++++++++++++++++++++
 	ArrayHexToSysEx(arr) {
-		if Type(arr) != "Array" {
-			MsgBox("Invalid parameter: " Type(arr), "MIDIv2 - ArrayHexToSysEx", "48")
+		if (Type(arr) != "Array") {
+			MsgBox("Invalid parameter: " Type(arr), "MIDIv2 - ArrayHexToSysEx", 48)
 			return ""
 		}
 		s := ""
@@ -556,8 +622,8 @@ class MIDIv2 {
 	}
 	
 	ArrayDecToSysEx(arr) {
-		if Type(arr) != "Array" {
-			MsgBox("Invalid parameter: " Type(arr), "MIDIv2 - ArrayDecToSysEx", "48")
+		if (Type(arr) != "Array") {
+			MsgBox("Invalid parameter: " Type(arr), "MIDIv2 - ArrayDecToSysEx", 48)
 			return ""
 		}
 		s := ""
@@ -568,15 +634,15 @@ class MIDIv2 {
 	}
 	
 	TextToSysEx(str) {
-		if Type(str) != "String" {
-			MsgBox("Invalid parameter: " Type(str), "MIDIv2 - TextToSysEx", "48")
+		if (Type(str) != "String") {
+			MsgBox("Invalid parameter: " Type(str), "MIDIv2 - TextToSysEx", 48)
 			return ""
 		}
 		s := ""
 		Loop Parse str {
 			charValue := Ord(A_LoopField)
 			if charValue > 127 {
-				MsgBox("ASCII value limit exceeded`nSpecifically: " A_LoopField, "MIDIv2 - TextToSysEx", "48")
+				MsgBox("ASCII value limit exceeded`nSpecifically: " A_LoopField, "MIDIv2 - TextToSysEx", 48)
 				return ""
 			}
 			s .= Format("{:02X} ", Ord(A_LoopField) " ")
@@ -585,8 +651,8 @@ class MIDIv2 {
 	}
 	
 	SysExToText(sysEx) {
-		if Type(sysEx) != "String" {
-			MsgBox("Invalid parameter: " Type(sysEx), "MIDIv2 - SysExToText", "48")
+		if (Type(sysEx) != "String") {
+			MsgBox("Invalid parameter: " Type(sysEx), "MIDIv2 - SysExToText", 48)
 			return ""
 		}
 		arr := StrSplit(sysEx, " ")
@@ -603,43 +669,35 @@ class MIDIv2 {
 	}
 	
 	_midiOutShortMsg(msg) {
-		if this._h_MIDI_OUT.ptr == 0 {
-			MsgBox("Sending MIDI failed!`nNo MIDI Out port opened", "MIDIv2", "48")
+		if this._hMidiOut = 0 {
+			MsgBox("Sending MIDI failed!`nNo MIDI Out port opened", "MIDIv2 - midiOutShortMsg", 48)
 			return
 		}
 		
-		result := DllCall("winmm.dll\midiOutShortMsg", "Ptr", this._h_MIDI_OUT.ptr, "UInt", msg)
-		if result != 0 || (A_LastError != 0 && A_LastError != 997) {
-			MsgBox("Error sending `"midiOutShortMsg`".`nresult=" result, "MIDIv2", "48")
+		result := DllCall("winmm.dll\midiOutShortMsg", "Ptr", this._hMidiOut, "UInt", msg)
+		if (result != 0 || (A_LastError != 0 && A_LastError != 997)) {
+			MsgBox("Error sending `"midiOutShortMsg`".`nresult=" result, "MIDIv2", 48)
 			return
 		}
 	}
 	
 	; MIDI In +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-	OpenMidiIn(devID)	{	
-		result := DllCall("winmm.dll\midiInOpen", "Ptr*", this._h_MIDI_IN, "UInt", devID, "Ptr", this._hWnd, "UInt", 0, "UInt", 0x10000)  ; MIDI_CALLBACK_WINDOW
-		if result != 0 {
-			MsgBox("There was an error opening the MIDI In port `nresult = " result "`nThis application will now close!", "MIDIv2 - OpenMidiIn", "16")
+	OpenMidiIn(devID)	{
+		hMidiIn := 0
+		result := DllCall("winmm.dll\midiInOpen", "Ptr*", &hMidiIn, "UInt", devID, "Ptr", A_ScriptHwnd, "UInt", 0, "UInt", 0x10000)  ; MIDI_CALLBACK_WINDOW
+		if (result != 0) {
+			MsgBox("Error opening a MIDI In port `nresult = " result "`nThis application will now close!", "MIDIv2 - OpenMidiIn", 16)
 			ExitApp
 		}
-
-		result := DllCall("winmm.dll\midiInStart", "Ptr", this._h_MIDI_IN)
-		if result != 0 {
-			MsgBox("There was an error starting the MIDI In port  `nresult = " result "`nThis application will now close!", "MIDIv2 - OpenMidiIn", "16")
+		this._hMidiIn := hMidiIn
+		
+		result := DllCall("winmm.dll\midiInStart", "Ptr", this._hMidiIn)
+		if (result != 0) {
+			MsgBox("Error starting a MIDI In port  `nresult = " result "`nThis application will now close!", "MIDIv2 - OpenMidiIn", 16)
 			ExitApp
 		}
-
-		result := DllCall("winmm.dll\midiInPrepareHeader", "Ptr", this._h_MIDI_IN, "Ptr", this._MIDIHDR2, "UInt", 12 * A_PtrSize)
-		if result != 0 {
-			MsgBox("There was an error preparing a MIDI In header `nresult = " result "`nThis application will now close!", "MIDIv2 - OpenMidiIn", "16")
-			ExitApp
-		}
-
-		result := DllCall("winmm.dll\midiInAddBuffer", "Ptr", this._h_MIDI_IN, "Ptr", this._MIDIHDR2, "UInt", 12 * A_PtrSize)
-		if result != 0 {
-			MsgBox("There was an error adding a MIDI In buffer `nresult = " result "`nThis application will now close!", "MIDIv2 - OpenMidiIn", "16")
-			ExitApp
-		}
+		
+		this._createSysExBuffers()
 
 		; MIDI event types
 		MIDI_OPEN := 0x3C1
@@ -650,7 +708,7 @@ class MIDIv2 {
 		MIDI_LONGERROR := 0x3C6
 		MIDI_MOREDATA := 0x3CC
 		
-		; Register callbacks
+		; Register MIDI callbacks
 		OnMessage MIDI_DATA, this._callbackShort
 		OnMessage MIDI_LONGDATA, this._callbackLong
 		OnMessage MIDI_MOREDATA, this._callbackMore
@@ -658,29 +716,98 @@ class MIDIv2 {
 		OnMessage MIDI_LONGERROR, this._callbackLongError
 	}
 	
+	_createSysExBuffers() {
+		nbrOfBuffers := this._nbrOfBuffers
+		bufferSize := this._bufferSize
+		Loop nbrOfBuffers {
+			this._addNewBuffer()
+		}
+		this._sysExBufSize := nbrOfBuffers * bufferSize
+		this._sysExBuf := Buffer(this._sysExBufSize)
+		this._sysExDataLen := 0
+	}
+	
+	_addNewBuffer() {
+		bufSize := this._bufferSize
+
+		; Allocate data buffer (zeroed)
+		pData := Buffer(bufSize, 0)
+
+		; Allocate MIDIHDR
+		cbMidiHdr := this._midiHdrSize  ; (set earlier to 120/64)
+		pHdr := Buffer(cbMidiHdr, 0)
+
+		; Field offsets
+		off_lpData          := 0
+		off_dwBufferLength  := A_PtrSize
+		off_dwBytesRecorded := A_PtrSize + 4
+		off_dwUser          := A_PtrSize + 8
+		off_dwFlags         := 2*A_PtrSize + 8
+		off_lpNext          := 3*A_PtrSize + 8
+		off_reserved        := 4*A_PtrSize + 8
+		off_dwOffset        := 5*A_PtrSize + 8
+		off_dwReserved0     := 6*A_PtrSize + 8  ; start of array[8]
+
+		; Populate required fields
+		NumPut("Ptr",  pData.Ptr,  pHdr, off_lpData)				; lpData
+		NumPut("UInt", bufSize,    pHdr, off_dwBufferLength)	; dwBufferLength
+		NumPut("UInt", 0,          pHdr, off_dwBytesRecorded)	; dwBytesRecorded
+		NumPut("Ptr",  0,          pHdr, off_dwUser)				; dwUser (client use)
+		NumPut("UInt", 0,          pHdr, off_dwFlags)			; dwFlags must be 0
+
+		; Zero reserved fields
+		NumPut("Ptr", 0, pHdr, off_lpNext)                   ; lpNext
+		NumPut("Ptr", 0, pHdr, off_reserved)                 ; reserved
+		NumPut("UInt", 0, pHdr, off_dwOffset)                ; dwOffset
+		Loop 8 {
+			NumPut("Ptr", 0, pHdr, off_dwReserved0 + (A_Index-1) * A_PtrSize)
+		}
+
+		; Prepare + queue
+		result := DllCall("winmm.dll\midiInPrepareHeader"
+			, "Ptr", this._hMidiIn
+			, "Ptr", pHdr
+			, "UInt", cbMidiHdr)
+		if (result != 0) {
+			MsgBox("Error preparing MIDI Input Header.`nError code: " result "`nThis application will now close!", "MIDIv2 - addNewBuffer", 48)
+			ExitApp
+		}
+
+		result := DllCall("winmm.dll\midiInAddBuffer"
+			, "Ptr", this._hMidiIn
+			, "Ptr", pHdr
+			, "UInt", cbMidiHdr)
+		if (result != 0) {
+			MsgBox("Error adding MIDI Input buffer.`nError code: " result "`nThis application will now close!", "MIDIv2 - addNewBuffer", 48)
+			ExitApp
+		}
+		this._buffers.Push({Hdr: pHdr, Data: pData})
+	}
+
 	CloseMidiIn() {
-		if this._h_MIDI_IN.ptr == 0
-			return
-		result := DllCall("winmm.dll\midiInStop", "Ptr", this._h_MIDI_IN)
-		if result != 0 {
-			MsgBox("There was an error stopping the MIDI In port `nresult = " result "`nThis application will now close!", "MIDIv2 - CloseMidiIn", "16")
-			ExitApp
-		}
-		result := DllCall("winmm.dll\midiInReset", "Ptr", this._h_MIDI_IN)
-		if result != 0 {
-			MsgBox("There was an error resetting the MIDI In port `nresult = " result "`nThis application will now close!", "MIDIv2 - CloseMidiIn", "16")
-			ExitApp
-		}
-		result := DllCall("winmm.dll\midiInClose", "Ptr", this._h_MIDI_IN)
-		if result != 0 {
-			MsgBox("There was an Error closing the MIDI In port.`nError code: " result "`nThis application will now close!", "MIDIv2 - CloseMidiIn", "48")
+		if (this._hMidiIn = 0) {
 			return
 		}
-		this._h_MIDI_IN.ptr := 0
+		result := DllCall("winmm.dll\midiInStop", "Ptr", this._hMidiIn)
+		if (result != 0) {
+			MsgBox("Error stopping the MIDI In port `nresult = " result "`nThis application will now close!", "MIDIv2 - CloseMidiIn", 16)
+			ExitApp
+		}
+		result := DllCall("winmm.dll\midiInReset", "Ptr", this._hMidiIn)
+		if (result != 0) {
+			MsgBox("Error resetting the MIDI In port `nresult = " result "`nThis application will now close!", "MIDIv2 - CloseMidiIn", 16)
+			ExitApp
+		}
+		result := DllCall("winmm.dll\midiInClose", "Ptr", this._hMidiIn)
+		if (result != 0) {
+			MsgBox("There was an Error closing the MIDI In port.`nError code: " result "`nThis application will now close!", "MIDIv2 - CloseMidiIn", 48)
+			ExitApp
+		}
+		this._hMidiIn := 0
 	}
 	
 	_midiInCallback(wParam, lParam, msg, hwnd) {
-		if this._h_MIDI_IN.ptr == 0 {
+		if (this._hMidiIn = 0) {
 			return
 		}
 		
@@ -700,11 +827,11 @@ class MIDIv2 {
 		data2 := (lParam >> 16) & 0xFF
 		ch := lowByte + 1
 
-		if this._midiThrough && highByte < 0xF0 {
+		if (this._midiThrough && highByte < 0xF0) {
 			this._midiOutShortMsg(lParam)
 		}
 		
-		if this._midiInChannelFilter != -1 && lowByte != this._midiInChannelFilter {
+		if (this._midiInChannelFilter != -1 && lowByte != this._midiInChannelFilter) {
 			return
 		}
 		
@@ -730,15 +857,15 @@ class MIDIv2 {
 				callbackFunctions.Push(Format("{}{}{}", this._callbPrefix, midiEvent.EventType, midiEvent.NoteNumber))
 			case 0xB0:
 				; RPN Parameter
-				if this._rpnEnabled && (data1 = 0x64 || data1 = 0x65) {
-					if this._RPN[ch].paramsSet = 2 || this._RPN[ch].paramsSet = 0 {
+				if (this._isRpnEnabled && (data1 = 0x64 || data1 = 0x65)) {
+					if (this._RPN[ch].paramsSet = 2 || this._RPN[ch].paramsSet = 0) {
 						this._RPN[ch].paramsSet := 1
 						this._RPN[ch].param := 0
 						this._RPN[ch].valuesSet := 0
-					} else if this._RPN[ch].paramsSet = 1 {
+					} else if (this._RPN[ch].paramsSet = 1) {
 						this._RPN[ch].paramsSet := 2
 					}
-					this._RPNNRPN_LastParam[ch] := "RPN"
+					this._lastRpnNrpnParam[ch] := "RPN"
 					switch data1 {
 						case 0x64:
 							this._RPN[ch].param |= data2	; Parameter LSB
@@ -746,15 +873,15 @@ class MIDIv2 {
 							this._RPN[ch].param |= (data2 << 7)	; Parameter MSB
 					}
 				; NRPN Parameter
-				} else if this._nrpnEnabled && (data1 = 0x62 || data1 = 0x63) {
-					if this._NRPN[ch].paramsSet = 2 || this._NRPN[ch].paramsSet = 0 {
+				} else if (this._isNrpnEnabled && (data1 = 0x62 || data1 = 0x63)) {
+					if (this._NRPN[ch].paramsSet = 2 || this._NRPN[ch].paramsSet = 0) {
 						this._NRPN[ch].paramsSet := 1
 						this._NRPN[ch].param := 0
 						this._NRPN[ch].valuesSet := 0
-					} else if this._NRPN[ch].paramsSet = 1 {
+					} else if (this._NRPN[ch].paramsSet = 1) {
 						this._NRPN[ch].paramsSet := 2
 					}
-					this._RPNNRPN_LastParam[ch] := "NRPN"
+					this._lastRpnNrpnParam[ch] := "NRPN"
 					switch data1 {
 						case 0x62:
 							this._NRPN[ch].param |= data2	; Parameter LSB
@@ -762,11 +889,11 @@ class MIDIv2 {
 							this._NRPN[ch].param |= (data2 << 7)	; Parameter MSB
 					}
 				; RPN Value
-				} else if this._rpnEnabled && this._RPNNRPN_LastParam[ch] = "RPN" && (data1 = 0x06 || data1 = 0x26) {
-					if this._RPN[ch].valuesSet = 2 || this._RPN[ch].valuesSet = 0 {
+				} else if (this._isRpnEnabled && this._lastRpnNrpnParam[ch] = "RPN" && (data1 = 0x06 || data1 = 0x26)) {
+					if (this._RPN[ch].valuesSet = 2 || this._RPN[ch].valuesSet = 0) {
 						this._RPN[ch].valuesSet := 1
 						this._RPN[ch].value := 0
-					} else if this._RPN[ch].valuesSet = 1 {
+					} else if (this._RPN[ch].valuesSet = 1) {
 						this._RPN[ch].valuesSet := 2
 					}
 					switch data1 {
@@ -776,7 +903,7 @@ class MIDIv2 {
 							this._RPN[ch].value |= data2	; Value LSB
 					}
 					; RPN Complete
-					if this._RPN[ch].paramsSet = 2 && this._RPN[ch].valuesSet = 2 {
+					if (this._RPN[ch].paramsSet = 2 && this._RPN[ch].valuesSet = 2) {
 						midiEvent.EventType := "RPN"
 						midiEvent.Parameter := this._RPN[ch].param
 						midiEvent.Value := this._RPN[ch].value
@@ -784,7 +911,7 @@ class MIDIv2 {
 						callbackFunctions.Push(Format("{}{}{}", this._callbPrefix, midiEvent.EventType, midiEvent.Parameter))
 					}
 				; NRPN Value
-				} else if this._nrpnEnabled && this._RPNNRPN_LastParam[ch] = "NRPN" && (data1 = 0x06 || data1 = 0x26) {
+				} else if (this._isNrpnEnabled && this._lastRpnNrpnParam[ch] = "NRPN" && (data1 = 0x06 || data1 = 0x26)) {
 					if this._NRPN[ch].valuesSet = 2 || this._NRPN[ch].valuesSet = 0 {
 						this._NRPN[ch].valuesSet := 1
 						this._NRPN[ch].value := 0
@@ -798,7 +925,7 @@ class MIDIv2 {
 							this._NRPN[ch].value |= data2	; Value LSB
 					}
 					; NRPN Complete
-					if this._NRPN[ch].paramsSet = 2 && this._NRPN[ch].valuesSet = 2 {
+					if (this._NRPN[ch].paramsSet = 2 && this._NRPN[ch].valuesSet = 2) {
 						midiEvent.EventType := "NRPN"
 						midiEvent.Parameter := this._NRPN[ch].param
 						midiEvent.Value := this._NRPN[ch].value
@@ -827,8 +954,8 @@ class MIDIv2 {
 				midiEvent.Channel := ch
 				midiEvent.PitchBend := (data2 << 7) + data1
 			case 0xF0:
-				if this._tcEnabled {
-					if lowbyte = 0x1 {
+				if (this._isTcEnabled) {
+					if (lowbyte = 0x1) {
 						piece := (data1 & 0xF0) >> 4
 						switch piece {
 							case 0:
@@ -854,13 +981,12 @@ class MIDIv2 {
 								midiEvent.Frames := mtc_f
 								midiEvent.FrameRateCode := mtc_fr
 								this._frameRateCode := mtc_fr
-								frameRates := [24.0, 25.0, 29.97, 30.0]
-								midiEvent.FrameRate := frameRates[mtc_fr + 1]
+								midiEvent.FrameRate := this._frameRatesTable[mtc_fr + 1]
 								midiEvent.EventType := "TC_RunningFull"
 						}
 					}
 				}
-				if this._srtEnabled {
+				if (this._isSrtEnabled) {
 					switch lowByte {
 						case 0x8:
 							; Timing Clock
@@ -890,13 +1016,15 @@ class MIDIv2 {
 				}
 		}
 		
-		if midiEvent.EventType != ""
-			callbackFunctions.Push(Format("{}{}", this._callbPrefix, midiEvent.EventType))  ; Add a callback for the event type. E.g. "NoteOn", "ControlChange".
+		if (midiEvent.EventType != "") {
+			; Add a callback for the event type. E.g. "NoteOn", "ControlChange".
+			callbackFunctions.Push(Format("{}{}", this._callbPrefix, midiEvent.EventType))
+		}
 
-		 ; Try calling all event functions
+		; Try calling all event functions
 		for _, funcName in callbackFunctions {
 			try {
-				if noArg {
+				if (noArg) {
 					%funcName%()
 				} else {
 					%funcName%(midiEvent)
@@ -906,40 +1034,94 @@ class MIDIv2 {
 	}
 	
 	_midiInSysExCallback(wParam, lParam, msg, hwnd) {
-		if this._h_MIDI_IN.ptr == 0
+		Critical -1
+		if (this._hMidiIn = 0) {
 			return
-		
-		Critical
+		}
+
+		nbrOfBytes := NumGet(lParam + A_PtrSize + 4, "UInt") ; dwBytesRecorded
+		pData      := NumGet(lParam + 0, "Ptr")              ; lpData
+
+		if (nbrOfBytes > 0 && pData) {
+			needed := this._sysExDataLen + nbrOfBytes
+
+			if (needed <= this._sysExBufSize) {
+				; Append chunk
+				DllCall("RtlMoveMemory", "Ptr", this._sysExBuf.Ptr + this._sysExDataLen, "Ptr", pData, "UPtr", nbrOfBytes)
+				this._sysExDataLen := needed
+
+				; EOX check (last byte of chunk)
+				if (NumGet(pData, nbrOfBytes - 1, "UChar") = 0xF7) {
+					this._sysExEventHandler()
+					this._sysExDataLen := 0
+				}
+			} else {
+				; Buffer overflow
+				if (this._hMidiIn) {
+					DllCall("winmm.dll\midiInStop", "ptr", this._hMidiIn)
+				}
+				
+				this._requeueBuffer(lParam)
+				this._sysExDataLen := 0
+				MsgBox("Incoming SysEx data exceeded total buffer size.`n"
+					"Current total buffer size = " this._sysExBufSize " Byte(s) (" this._nbrOfBuffers " * " this._bufferSize ")."
+					, "MIDIv2 - midiInSysExCallback", 48)
+				
+				if (this._hMidiIn) {
+					DllCall("winmm.dll\midiInStart", "ptr", this._hMidiIn)
+				}
+			}
+		}
+		this._requeueBuffer(lParam)
+	}
+	
+	_requeueBuffer(lParam) {
+		NumPut("UInt", 0, lParam, A_PtrSize + 4)               ; dwBytesRecorded = 0
+		flags := NumGet(lParam, 2*A_PtrSize + 8, "UInt")
+		flags := flags & ~0x00000001                           ; clear MHDR_DONE
+		flags := flags & ~0x00000004                           ; clear MHDR_INQUEUE
+		NumPut("UInt", flags, lParam, 2*A_PtrSize + 8)
+		res := DllCall("winmm.dll\midiInAddBuffer", "Ptr", this._hMidiIn, "Ptr", lParam, "UInt", this._midiHdrSize)
+		if (res != 0) {
+			MsgBox("Error re-adding MIDI Input buffer.`nError code: " res "`nThis application will now close!", "MIDIv2 - midiInSysExCallback", 16)
+			ExitApp
+		}
+	}
+	
+	_sysExEventHandler() {
+		Critical "Off"
 		isMMC_TC := False
+		sysExDataLen := this._sysExDataLen
 		sysExEvent := {}
 		str := ""
 		sysExEvent.ArrHex := []
+		sysExEvent.ArrHex.Length := sysExDataLen
 		sysExEvent.ArrDec := []
-		Data := NumGet(lParam+0, 0, "Ptr")
-		nbrOfBytes := NumGet(lParam + 0, A_PtrSize + 4, "UInt")
-		sysExEvent.Size := nbrOfBytes
+		sysExEvent.ArrDec.Length := sysExDataLen
 		funcName := ""
 		noArg := False
-		
-		if nbrOfBytes < 3
-			return
+		sysExEvent.Size := sysExDataLen
+		ptr := this._sysExBuf.ptr
+		hexBuf := Buffer(sysExDataLen * 3)
+		hexPtr := hexBuf.Ptr
 
-		loop nbrOfBytes {
-			oneByte := NumGet(Data + 0, A_Index - 1, "UChar")
-			sysExEvent.ArrDec.Push(oneByte)
-			hexByte := Format("{:02X}", oneByte)
-			sysExEvent.ArrHex.Push(hexByte)
-			str .= hexByte " "
+		loop sysExDataLen {
+			idx := A_Index
+			oneByte := NumGet(ptr + (idx - 1), "UChar")
+			sysExEvent.ArrDec[idx] := oneByte
+			sysExEvent.ArrHex[idx] := Format("{:02X}", oneByte)
+			DllCall("msvcrt\sprintf", "ptr", hexPtr, "astr", sysExEvent.ArrHex[idx] " ", "cdecl")
+			hexPtr += 3
 		}
-		sysExEvent.String := SubStr(str, 1, -1)
+		sysExEvent.String := StrGet(hexBuf.Ptr, sysExDataLen * 3 - 1, "CP0") ; Trim trailing space
 		
-		if sysExEvent.ArrHex[2] == "7F" {
+		if (sysExEvent.ArrHex[2] = "7F") {
 			; Machine Control Response and Time Code
-			if sysExEvent.ArrHex[3] = this._mmcDeviceId || sysExEvent.ArrHex[3] == "7F" {	; Device ID check
+			if (sysExEvent.ArrHex[3] = this._mmcDeviceId || sysExEvent.ArrHex[3] = "7F") {	; Device ID check
 				timeCode := {}
 				switch sysExEvent.ArrHex[4] {
 					case "01":
-						if this._tcEnabled {
+						if this._isTcEnabled {
 							isMMC_TC := True
 							rawMMC_TC := sysExEvent
 							; Time Code (full)						
@@ -950,14 +1132,13 @@ class MIDIv2 {
 							fr := (sysExEvent.ArrDec[6] & 0x60) >> 5
 							timeCode.frameRateCode := fr
 							this._frameRateCode := fr
-							frameRates := [24.0, 25.0, 29.97, 30.0]
-							timeCode.frameRate := frameRates[fr + 1]
+							timeCode.frameRate := this._frameRatesTable[fr + 1]
 							sysExEvent := timeCode
 							funcName := Format("{}{}", this._callbPrefix, "TC_Full")
 						}
 					case "07":
 						; MCR (response)
-						if this._mmcEnabled {
+						if this._isMmcEnabled {
 							isMMC_TC := True
 							rawMMC_TC := sysExEvent
 							switch sysExEvent.ArrHex[5] {
@@ -1031,23 +1212,14 @@ class MIDIv2 {
 				}
 			}
 		}
-		if !isMMC_TC {		
+		if (!isMMC_TC) {		
 			funcName := Format("{}{}", this._callbPrefix, "SysEx")
 		}
-	
-		; Reset buffer
-		result := DllCall("winmm.dll\midiInAddBuffer", "Ptr", this._h_MIDI_IN, "Ptr", this._MIDIHDR2, "UInt", 12 * A_PtrSize)
-		if result != 0	{
-			MsgBox("midiInAddBuffer from midiInSysExCallback failed!`n" "Result: " result, "MIDIv2", "48")
-			return
-		}
-
-		Critical "Off"
 		
 		; Try calling event functions
 		try {
-			if funcName != "" {
-				if noArg {
+			if (funcName != "") {
+				if (noArg) {
 					%funcName%()
 				} else {
 					%funcName%(sysExEvent)
@@ -1055,7 +1227,7 @@ class MIDIv2 {
 			}
 		}
 		try {
-			if isMMC_TC {
+			if (isMMC_TC) {
 				funcName := Format("{}{}", this._callbPrefix, "MMC_SysEx")
 				%funcName%(rawMMC_TC)
 			}
@@ -1063,12 +1235,12 @@ class MIDIv2 {
 	}
 	
 	_midiInMoreData(wParam, lParam, msg, hwnd) {
-		;OutputDebug "more data..."
+		OutputDebug "more data..."
 	}
 	_midiInError(wParam, lParam, msg, hwnd) {
-		;OutputDebug "Error: lParam: " lParam
+		OutputDebug "Error: lParam: " lParam
 	}
 	_midiInLongError(wParam, lParam, msg, hwnd) {
-		;OutputDebug "LongError: lParam: " lParam
+		OutputDebug "LongError: lParam: " lParam
 	}
 }

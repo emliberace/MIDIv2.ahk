@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.1.2] - 2025-08-17
+### Added
+- #### Properties added
+    - SysExInputBuffers
+    - SysExInputBufferSize
+	 
+### Changed
+- Incoming SysEx messages now uses multiple buffers which enables larger sized messages to be received
+- Minor code cleanup
+
 ## [v1.1] - 2025-08-07
 ### Added
 - Added support for RPN/NRPN
