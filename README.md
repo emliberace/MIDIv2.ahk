@@ -1,4 +1,4 @@
-# MIDIv2.ahk (v1.1)
+# MIDIv2.ahk (v1.1.2)
 
 
 The MIDIv2 library grants MIDI functionality to AutoHotKey v2.
