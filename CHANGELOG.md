@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.2] - 2026-07-25
+### Changed
+ - All errors in the library now throw rather than show a message box
+ - Stability and robustness updates. In particular in areas regarding SysEx
+
 ## [v1.1.2] - 2025-08-17
 ### Added
 - #### Properties added
