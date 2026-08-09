@@ -540,17 +540,23 @@ class MIDIv2 {
 				try {
 					arrV := StrSplit(timeCode, ":")
 				} catch {
-					MsgBox("MMC_TimeCode - Incorrect String format`nFailed to create Array", "MIDIv2 - MMC_Locate", 48)
-					return
+					throw MethodError(
+						A_ThisFunc "`nIncorrect String format`nFailed to create Array",
+						A_ThisFunc
+					)
 				}
 				if (arrV.Length != 4) {
-					MsgBox("Incorrect String format`nIncorrect number of elements", "MIDIv2 - MMC_Locate", 48)
-					return
+					throw MethodError(
+						A_ThisFunc "`nIncorrect String format`nIncorrect number of elements",
+						A_ThisFunc
+					)
 				}					
 			case "Array":
 				if (timeCode.Length != 4) {
-					MsgBox("Incorrect Array length", "MIDIv2 - MMC_Locate", 48)
-					return
+					throw MethodError(
+						A_ThisFunc "`nIncorrect Array length",
+						A_ThisFunc
+					)
 				}
 				arrV := timeCode
 		}
