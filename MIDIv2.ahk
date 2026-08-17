@@ -2,6 +2,7 @@
 class MIDIv2 {
 	_hMidiOut := 0
 	_hMidiIn := 0
+	_midiInClosing := False
 	_midiInChannelFilter := -1
 	_midiOutChannel := 0
 	_midiHdrSize := 0
@@ -772,6 +773,8 @@ class MIDIv2 {
 	; MIDI In +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 	OpenMidiIn(devID)	{
 		; Open MIDI In port
+		this._midiInClosing := False
+		
 		hMidiIn := 0
 		result := DllCall("winmm.dll\midiInOpen"
 			, "Ptr*", &hMidiIn
@@ -786,6 +789,7 @@ class MIDIv2 {
 			)
 		}
 		this._hMidiIn := hMidiIn
+		OutputDebug "OpenMidiIn - this._hMidiIn=" this._hMidiIn
 		
 		; Prepare input buffers for SysEx
 		this._prepareInputBuffers()
@@ -874,22 +878,27 @@ class MIDIv2 {
 			return
 		}
 		
+		this._midiInClosing := True
 		result := DllCall("winmm.dll\midiInStop", "Ptr", this._hMidiIn)
 		if (result != 0) {
+			this._midiInClosing := False
 			throw MethodError(
 				A_ThisFunc "`nError stopping the MIDI Input port.`nresult = " result,
 				A_ThisFunc
 			)
 		}
 		
+		OutputDebug "reseting"
 		result := DllCall("winmm.dll\midiInReset", "Ptr", this._hMidiIn)
 		if (result != 0) {
+			this._midiInClosing := False
 			throw MethodError(
 				A_ThisFunc "`nError resetting the MIDI Input port.`nresult = " result,
 				A_ThisFunc
 			)
 		}
 		
+		OutputDebug "Unpreparing headers"
 		unprepareError := 0
 		MIDIHDRSize := this._MIDIHDR_size
 		for buffer in this._sysExInputBuffers {
@@ -900,11 +909,14 @@ class MIDIv2 {
 					, "UInt", MIDIHDRSize)
 			if ((result != 0) && (unprepareError = 0)) {
 				unprepareError := result
+				OutputDebug "Unprepare Error=" result
 			}
 		}
 		
+		OutputDebug "Closing port"
 		result := DllCall("winmm.dll\midiInClose", "Ptr", this._hMidiIn)
 		if (result != 0) {
+			this._midiInClosing := False
 			throw MethodError(
 				A_ThisFunc "`nError closing the MIDI Input port.`nresult = " result,
 				A_ThisFunc
@@ -915,11 +927,13 @@ class MIDIv2 {
 		this._sysExInputBuffers := []
 		
 		if (unprepareError != 0) {
+			this._midiInClosing := False
 			throw MethodError(
 				A_ThisFunc "`nError unpreparing MIDI input SysEx header.`nresult = " unprepareError,
 				A_ThisFunc
 			)
 		}
+		OutputDebug "Input port is closed"
 	}
 	
 	_midiInCallback(wParam, lParam, msg, hwnd) {
@@ -950,7 +964,7 @@ class MIDIv2 {
 		if (this._midiInChannelFilter != -1 && lowByte != this._midiInChannelFilter) {
 			return
 		}
-		
+		OutputDebug("Highbyte: " highByte)
 		
 		switch highByte {
 			case 0x80:
@@ -1150,11 +1164,14 @@ class MIDIv2 {
 	}
 	
 	_midiInSysExCallback(wParam, lParam, msg, hwnd) {
-		Critical -1	; Current thread cannot be interrupted. Message checks are disabled.
-		if (this._hMidiIn = 0) {
+		if (this._hMidiIn != wParam)
 			return
-		}
-
+			
+		if (this._midiInClosing)
+			return
+		
+		Critical -1	; Current thread cannot be interrupted. Message checks are disabled.
+	
 		nbrOfBytes := NumGet(lParam, this._MIDIHDR_dwBytesRecorded, "UInt")
 		pData := NumGet(lParam, this._MIDIHDR_lpData, "Ptr")
 
@@ -1174,13 +1191,14 @@ class MIDIv2 {
 			} else {
 				; Buffer overflow
 				this.CloseMidiIn()
-
+				Critical "Off"
 				throw MethodError(
 				 "Incoming SysEx data exceeded total buffer size.`nThe MIDI Input Port has been closed.",
 					A_ThisFunc
 				)
 			}
 		}
+		Critical "Off"
 		this._requeueBuffer(lParam)
 	}
 	
@@ -1205,7 +1223,8 @@ class MIDIv2 {
 	}
 	
 	_sysExEventHandler() {
-		Critical "Off"
+		OutputDebug("_sysExEventHandler...")
+		
 		isMMC_TC := False
 		sysExDataLen := this._sysExDataLen
 		sysExEvent := {}
