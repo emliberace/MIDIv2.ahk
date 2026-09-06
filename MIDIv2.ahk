@@ -13,6 +13,8 @@ class MIDIv2 {
 	_sysExBuf := 0
 	_sysExDataLen := 0
 	_sysExBufSize := 0
+	_sysExOverflowState := False
+	_sysExOverflowTimer := 0
 	_midiThrough := False
 	_frameRatesTable := [24.0, 25.0, 29.97, 30.0]
 	_callbPrefix := "MidiIn"
@@ -71,6 +73,8 @@ class MIDIv2 {
 		this._callbackError := ObjBindMethod(this, "_midiInError")
 		this._callbackLongError := ObjBindMethod(this, "_midiInLongError")
 		this._callbackSysExDone := ObjBindMethod(this, "_onSysExDone")
+		
+		this._sysExOverflowTimer := ObjBindMethod(this, "_bufferOverflowRecovery")
 		
 		; Initialize RPN/NRPN data structures
 		Loop 16 {
@@ -236,7 +240,13 @@ class MIDIv2 {
 		Loop deviceCount {
 			deviceNumber := A_Index - 1
 			midiStruct := Buffer(MIDI_DEVICE_STRUCT_LENGTH, 0)
-			result := DllCall("winmm.dll\midiInGetDevCapsA", "UInt", deviceNumber, "Ptr", midiStruct.Ptr, "UInt", MIDI_DEVICE_STRUCT_LENGTH, "UInt")
+			result := DllCall(
+				"winmm.dll\midiInGetDevCapsA", 
+				"UInt", deviceNumber, 
+				"Ptr", midiStruct.Ptr, 
+				"UInt", MIDI_DEVICE_STRUCT_LENGTH, 
+				"UInt"
+			)
 
 			if (result != 0) {
 				throw MethodError(
@@ -259,7 +269,13 @@ class MIDIv2 {
 		Loop deviceCount {
 			deviceNumber := A_Index - 1
 			midiStruct := Buffer(MIDI_DEVICE_STRUCT_LENGTH, 0)
-			result := DllCall("winmm.dll\midiOutGetDevCapsA", "UInt", deviceNumber, "Ptr", midiStruct.Ptr, "UInt", MIDI_DEVICE_STRUCT_LENGTH, "UInt")
+			result := DllCall(
+				"winmm.dll\midiOutGetDevCapsA", 
+				"UInt", deviceNumber, 
+				"Ptr", midiStruct.Ptr, 
+				"UInt", MIDI_DEVICE_STRUCT_LENGTH, 
+				"UInt"
+			)
 
 			if (result != 0) {
 				throw MethodError(
@@ -276,12 +292,14 @@ class MIDIv2 {
 	
 	OpenMidiOut(devID) {
 		hMidiOut := 0
-		result := DllCall("winmm.dll\midiOutOpen"
+		result := DllCall(
+			"winmm.dll\midiOutOpen"
 			, "Ptr*", &hMidiOut
 			, "UInt", devID
 			, "Ptr", A_ScriptHwnd
 			, "Ptr", 0
-			, "UInt", 0x10000)	; MIDI_CALLBACK_WINDOW
+			, "UInt", 0x10000	; MIDI_CALLBACK_WINDOW
+		)
 		if (result != 0) {
 			this._hMidiOut := 0
 			throw MethodError(
@@ -317,10 +335,12 @@ class MIDIv2 {
 		unprepareError := 0
 		MIDIHDRSize := this._MIDIHDR_size
 		for buffer in this._sysExOutputBuffers {
-			result := DllCall("winmm.dll\midiOutUnprepareHeader"
-				, "Ptr", this._hMidiOut
-				, "Ptr", buffer.Hdr
-				, "UInt", MIDIHDRSize)
+			result := DllCall(
+				"winmm.dll\midiOutUnprepareHeader", 
+				"Ptr", this._hMidiOut, 
+				"Ptr", buffer.Hdr, 
+				"UInt", MIDIHDRSize
+			)
 			if ((result != 0) && (unprepareError = 0)) {
 				unprepareError := result
 			}
@@ -627,7 +647,6 @@ class MIDIv2 {
 
       ; Prepare the MIDIHDR structure
       MIDIHDR := this._createMIDIHDR(dataBuffer)
-		OutputDebug "Sending sysex. MIDIHDR=" MIDIHDR.ptr
 
       ; Prepare SysEx header
       result := DllCall("winmm.dll\midiOutPrepareHeader"
@@ -643,20 +662,23 @@ class MIDIv2 {
 		
 		; Store buffers until MOM_DONE is received.
 		this._sysExOutputBuffers.Push({Hdr: MIDIHDR, Data: dataBuffer})
-		OutputDebug "Pending=" this._sysExOutputBuffers.Length
 		
       ; Send the SysEx message
-      result := DllCall("winmm.dll\midiOutLongMsg"
-			, "Ptr", this._hMidiOut
-			, "Ptr", MIDIHDR
-			, "UInt", MIDIHDRSize)
+      result := DllCall(
+			"winmm.dll\midiOutLongMsg", 
+			"Ptr", this._hMidiOut, 
+			"Ptr", MIDIHDR, 
+			"UInt", MIDIHDRSize
+		)
       if (result != 0) {
 			this._sysExOutputBuffers.Pop()
 			
-			result := DllCall("winmm.dll\midiOutUnprepareHeader"
-				, "Ptr", this._hMidiOut
-				, "Ptr", MIDIHDR
-				, "UInt", MIDIHDRSize)
+			result := DllCall(
+				"winmm.dll\midiOutUnprepareHeader", 
+				"Ptr", this._hMidiOut, 
+				"Ptr", MIDIHDR, 
+				"UInt", MIDIHDRSize
+			)
 		
 			throw MethodError(
 				A_ThisFunc "`nError sending SysEx message `nresult = " result,
@@ -668,10 +690,12 @@ class MIDIv2 {
 	_onSysExDone(wParam, lParam, msg, hwnd) {
 		; Unprepare the header after sending the message	
 		MIDIHDRSize := this._MIDIHDR_size
-      result := DllCall("winmm.dll\midiOutUnprepareHeader"
-			, "Ptr", this._hMidiOut
-			, "Ptr", lParam
-			, "UInt", MIDIHDRSize)
+      result := DllCall(
+			"winmm.dll\midiOutUnprepareHeader", 
+			"Ptr", this._hMidiOut, 
+			"Ptr", lParam, 
+			"UInt", MIDIHDRSize
+		)
       if (result != 0) {
 			throw MethodError(
 				A_ThisFunc "`nError unpreparing the SysEx message header `nresult = " result,
@@ -683,11 +707,9 @@ class MIDIv2 {
 		for index, item in this._sysExOutputBuffers {
 			if (item.Hdr.Ptr = lParam) {
 				this._sysExOutputBuffers.RemoveAt(index)
-				OutputDebug "Pending=" this._sysExOutputBuffers.Length
 				break
 			}
 		}
-		OutputDebug "SysEx complete. MIDIHDR=" lParam
 	}
 	
 	; SysEx utlility functions ++++++++++++++++++++++++++++++++++++++++++++++
@@ -761,7 +783,11 @@ class MIDIv2 {
 			)
 		}
 		
-		result := DllCall("winmm.dll\midiOutShortMsg", "Ptr", this._hMidiOut, "UInt", msg)
+		result := DllCall(
+			"winmm.dll\midiOutShortMsg", 
+			"Ptr", this._hMidiOut, 
+			"UInt", msg
+		)
 		if (result != 0 || (A_LastError != 0 && A_LastError != 997)) {
 			throw MethodError(
 				A_ThisFunc "`nError sending message.`nresult = " result,
@@ -776,12 +802,14 @@ class MIDIv2 {
 		this._midiInClosing := False
 		
 		hMidiIn := 0
-		result := DllCall("winmm.dll\midiInOpen"
-			, "Ptr*", &hMidiIn
-			, "UInt", devID
-			, "Ptr", A_ScriptHwnd
-			, "UInt", 0
-			, "UInt", 0x10000)  ; MIDI_CALLBACK_WINDOW
+		result := DllCall(
+			"winmm.dll\midiInOpen", 
+			"Ptr*", &hMidiIn, 
+			"UInt", devID, 
+			"Ptr", A_ScriptHwnd, 
+			"UInt", 0, 
+			"UInt", 0x10000	; MIDI_CALLBACK_WINDOW
+		)
 		if (result != 0) {
 			throw MethodError(
 				A_ThisFunc "`nError opening MIDI Input port with device ID: " devID "`nresult = " result,
@@ -789,7 +817,6 @@ class MIDIv2 {
 			)
 		}
 		this._hMidiIn := hMidiIn
-		OutputDebug "OpenMidiIn - this._hMidiIn=" this._hMidiIn
 		
 		; Prepare input buffers for SysEx
 		this._prepareInputBuffers()
@@ -821,21 +848,19 @@ class MIDIv2 {
 	}
 	
 	_prepareInputBuffers() {
-		nbrOfBuffers := this._nbrOfBuffers
-		bufferSize := this._bufferSize
-		MIDIHDRSize := this._MIDIHDR_size
-		
-		Loop nbrOfBuffers {
+		Loop this._nbrOfBuffers {
 			; Allocate data buffer (zeroed)
-			dataBuffer := Buffer(bufferSize, 0)
+			dataBuffer := Buffer(this._bufferSize, 0)
 			
 			MIDIHDR := this._createMIDIHDR(dataBuffer)
 			
 			; Prepare + queue
-			result := DllCall("winmm.dll\midiInPrepareHeader"
-				, "Ptr", this._hMidiIn
-				, "Ptr", MIDIHDR
-				, "UInt", MIDIHDRSize)
+			result := DllCall(
+				"winmm.dll\midiInPrepareHeader", 
+				"Ptr", this._hMidiIn, 
+				"Ptr", MIDIHDR, 
+				"UInt", this._MIDIHDR_size
+			)
 			if (result != 0) {
 				throw MethodError(
 					A_ThisFunc "`nError preparing MIDI Input Header.`nresult = " result,
@@ -843,10 +868,12 @@ class MIDIv2 {
 				)
 			}
 
-			result := DllCall("winmm.dll\midiInAddBuffer"
-				, "Ptr", this._hMidiIn
-				, "Ptr", MIDIHDR
-				, "UInt", MIDIHDRSize)
+			result := DllCall(
+				"winmm.dll\midiInAddBuffer", 
+				"Ptr", this._hMidiIn, 
+				"Ptr", MIDIHDR, 
+				"UInt", this._MIDIHDR_size
+			)
 			if (result != 0) {
 				throw MethodError(
 					A_ThisFunc "`nError adding MIDI Input buffer.`nresult = " result,
@@ -856,15 +883,13 @@ class MIDIv2 {
 			this._sysExInputBuffers.Push({Hdr: MIDIHDR, Data: dataBuffer})
 		}
 		
-		this._sysExBufSize := nbrOfBuffers * bufferSize
-		this._sysExBuf := Buffer(this._sysExBufSize)
-		this._sysExDataLen := 0
+		this._sysExBufSize 	:= this._nbrOfBuffers * this._bufferSize
+		this._sysExBuf 		:= Buffer(this._sysExBufSize)
+		this._sysExDataLen 	:= 0
 	}
 	
 	_createMIDIHDR(dataBuffer) {
-		MIDIHDRSize := this._MIDIHDR_size
-		; Allocate MIDIHDR (zeroed)
-		MIDIHDR := Buffer(MIDIHDRSize, 0)
+		MIDIHDR := Buffer(this._MIDIHDR_size, 0)	; Allocate MIDIHDR (zeroed)
 		
 		; Populate required fields
 		NumPut("Ptr",  dataBuffer.Ptr,  MIDIHDR, this._MIDIHDR_lpData)				; lpData
@@ -874,11 +899,15 @@ class MIDIv2 {
 	}
 
 	CloseMidiIn() {
-		if (this._hMidiIn = 0) {
+		if (this._hMidiIn = 0)
 			return
-		}
 		
 		this._midiInClosing := True
+		
+		SetTimer(this._sysExOverflowTimer, 0)	; Terminate SysEx overflow timer
+		this._sysExDataLen := 0
+		this._sysExOverflowState := False
+		
 		result := DllCall("winmm.dll\midiInStop", "Ptr", this._hMidiIn)
 		if (result != 0) {
 			this._midiInClosing := False
@@ -888,7 +917,6 @@ class MIDIv2 {
 			)
 		}
 		
-		OutputDebug "reseting"
 		result := DllCall("winmm.dll\midiInReset", "Ptr", this._hMidiIn)
 		if (result != 0) {
 			this._midiInClosing := False
@@ -898,22 +926,20 @@ class MIDIv2 {
 			)
 		}
 		
-		OutputDebug "Unpreparing headers"
 		unprepareError := 0
-		MIDIHDRSize := this._MIDIHDR_size
 		for buffer in this._sysExInputBuffers {
-			MIDIHDR := buffer.Hdr
-			result := DllCall("winmm.dll\midiInUnprepareHeader"
-					, "Ptr", this._hMidiIn
-					, "Ptr", MIDIHDR
-					, "UInt", MIDIHDRSize)
+			result := DllCall(
+				"winmm.dll\midiInUnprepareHeader", 
+				"Ptr", this._hMidiIn, 
+				"Ptr", buffer.Hdr, 
+				"UInt", this._MIDIHDR_size
+			)
 			if ((result != 0) && (unprepareError = 0)) {
 				unprepareError := result
-				OutputDebug "Unprepare Error=" result
+				OutputDebug "CloseMidiIn - Unprepare Error=" result
 			}
 		}
 		
-		OutputDebug "Closing port"
 		result := DllCall("winmm.dll\midiInClose", "Ptr", this._hMidiIn)
 		if (result != 0) {
 			this._midiInClosing := False
@@ -933,13 +959,16 @@ class MIDIv2 {
 				A_ThisFunc
 			)
 		}
-		OutputDebug "Input port is closed"
+		
+		this._midiInClosing := False
 	}
 	
 	_midiInCallback(wParam, lParam, msg, hwnd) {
-		if (this._hMidiIn = 0) {
+		if (this._hMidiIn != wParam)
 			return
-		}
+			
+		if (this._midiInClosing)
+			return
 		
 		midiEvent := {}
 		midiEvent.EventType := ""		
@@ -964,7 +993,6 @@ class MIDIv2 {
 		if (this._midiInChannelFilter != -1 && lowByte != this._midiInChannelFilter) {
 			return
 		}
-		OutputDebug("Highbyte: " highByte)
 		
 		switch highByte {
 			case 0x80:
@@ -1171,49 +1199,116 @@ class MIDIv2 {
 			return
 		
 		Critical -1	; Current thread cannot be interrupted. Message checks are disabled.
+		startOffset := 0
+		eox := False
 	
 		nbrOfBytes := NumGet(lParam, this._MIDIHDR_dwBytesRecorded, "UInt")
 		pData := NumGet(lParam, this._MIDIHDR_lpData, "Ptr")
-
-		if (nbrOfBytes > 0 && pData) {
-			needed := this._sysExDataLen + nbrOfBytes
-
-			if (needed <= this._sysExBufSize) {
-				; Append chunk
-				DllCall("RtlMoveMemory", "Ptr", this._sysExBuf.Ptr + this._sysExDataLen, "Ptr", pData, "UPtr", nbrOfBytes)
-				this._sysExDataLen := needed
-
-				; EOX check (last byte of chunk)
-				if (NumGet(pData, nbrOfBytes - 1, "UChar") = 0xF7) {
-					this._sysExEventHandler()
-					this._sysExDataLen := 0
+		
+		if (nbrOfBytes > 0 && pData) {			
+			if (this._sysExOverflowState) {
+				; Check for SOX (0xF0 = Start Of eXlusive)
+				Loop nbrOfBytes {
+					if (NumGet(pData, A_Index - 1, "UChar") = 0xF0) {
+						SetTimer(this._sysExOverflowTimer, 0)
+						this._sysExOverflowState := False
+						this._sysExDataLen := 0
+						startOffset := A_Index - 1
+						break
+					}
 				}
-			} else {
-				; Buffer overflow
-				this.CloseMidiIn()
-				Critical "Off"
-				throw MethodError(
-				 "Incoming SysEx data exceeded total buffer size.`nThe MIDI Input Port has been closed.",
-					A_ThisFunc
-				)
+			}
+			if (!this._sysExOverflowState) {
+				; Check for EOX (0xF7 = End Of eXlusive)
+				lastByte := NumGet(pData, nbrOfBytes - 1, "UChar")
+				if (lastByte = 0xF7)
+					eox := True
+				
+				needed := this._sysExDataLen + nbrOfBytes - startOffset
+				if (needed <= this._sysExBufSize) {
+					; Append chunk
+					DllCall(
+						"RtlMoveMemory", 
+						"Ptr", this._sysExBuf.Ptr + this._sysExDataLen, 
+						"Ptr", pData + startOffset, 
+						"UPtr", nbrOfBytes - startOffset
+					)
+					this._sysExDataLen := needed
+					
+					if (eox) {
+						this._sysExEventHandler()
+						this._sysExDataLen := 0
+					}
+				} else {
+					; Buffer overflow
+					this._sysExOverflowState := True
+					
+					; Raise SysEx event
+					sysExEvent := {}
+					sysExEvent.Overflow := True
+					sysExEvent.Size := 0
+					sysExEvent.String := ""
+					sysExEvent.ArrHex := []
+					sysExEvent.ArrDec := []
+					funcName := Format("{}{}", this._callbPrefix, "SysEx")
+					try
+						%funcName%(sysExEvent)
+					
+					; Run overflow recovery method every 250ms
+					; (This will run continously until a new SOX message arrives)
+					SetTimer(this._sysExOverflowTimer, 250)
+				}
 			}
 		}
+		
+		try
+			this._requeueBuffer(wParam, lParam)
+		catch
+			OutputDebug "midiInSysExCallback - Failed requeuing " lParam
+			
 		Critical "Off"
-		this._requeueBuffer(lParam)
 	}
 	
-	_requeueBuffer(lParam) {
+	_bufferOverflowRecovery() {
+		if (this._hMidiIn = 0 || !this._sysExOverflowState) {
+			SetTimer(this._sysExOverflowTimer, 0)
+			return
+		}
+		
+		; Loop all SysEx buffers
+		for index, buffer in this._sysExInputBuffers {
+			flags := NumGet(buffer.Hdr, this._MIDIHDR_dwFlags, "UInt")
+
+			; Requeue buffers that are DONE
+			if ((flags & this._MHDR_DONE) && !(flags & this._MHDR_INQUEUE)) {			
+				NumPut("UInt", 0, buffer.Hdr, this._MIDIHDR_dwBytesRecorded)
+				result := DllCall(
+					"winmm.dll\midiInAddBuffer",
+					"Ptr", this._hMidiIn,
+					"Ptr", buffer.Hdr,
+					"UInt", this._MIDIHDR_size
+				)
+				if (result != 0)
+					OutputDebug "bufferOverflowRecovery, midiInAddBuffer - Failed: " result
+			}
+		}
+	}
+	
+	_requeueBuffer(hMidiIn, lParam) {
+		if (hMidiIn != this._hMidiIn)
+			return
+		
 		MIDIHDRSize := this._MIDIHDR_size
 		
 		NumPut("UInt", 0, lParam, this._MIDIHDR_dwBytesRecorded)
-		flags := NumGet(lParam, this._MIDIHDR_dwFlags, "UInt")
-		flags := flags & ~this._MHDR_DONE		; clear MHDR_DONE
-		flags := flags & ~this._MHDR_INQUEUE	; clear MHDR_INQUEUE
-		NumPut("UInt", flags, lParam, this._MIDIHDR_dwFlags)
-		result := DllCall("winmm.dll\midiInAddBuffer"
-			, "Ptr", this._hMidiIn
-			, "Ptr", lParam
-			, "UInt", MIDIHDRSize)
+		
+		result := DllCall(
+			"winmm.dll\midiInAddBuffer", 
+			"Ptr", this._hMidiIn, 
+			"Ptr", lParam, 
+			"UInt", MIDIHDRSize
+		)
+		
 		if (result != 0) {
 			throw MethodError(
 			 "Error re-adding MIDI Input buffer.`nError code: " result,
@@ -1223,11 +1318,10 @@ class MIDIv2 {
 	}
 	
 	_sysExEventHandler() {
-		OutputDebug("_sysExEventHandler...")
-		
 		isMMC_TC := False
 		sysExDataLen := this._sysExDataLen
 		sysExEvent := {}
+		sysExEvent.Overflow := False
 		str := ""
 		sysExEvent.ArrHex := []
 		sysExEvent.ArrHex.Length := sysExDataLen
@@ -1245,7 +1339,12 @@ class MIDIv2 {
 			oneByte := NumGet(ptr + (idx - 1), "UChar")
 			sysExEvent.ArrDec[idx] := oneByte
 			sysExEvent.ArrHex[idx] := Format("{:02X}", oneByte)
-			DllCall("msvcrt\sprintf", "ptr", hexPtr, "astr", sysExEvent.ArrHex[idx] " ", "cdecl")
+			DllCall(
+				"msvcrt\sprintf", 
+				"ptr", hexPtr, 
+				"astr", sysExEvent.ArrHex[idx] " ", 
+				"cdecl"
+			)
 			hexPtr += 3
 		}
 		sysExEvent.String := StrGet(hexBuf.Ptr, sysExDataLen * 3 - 1, "CP0") ; Trim trailing space
@@ -1370,13 +1469,13 @@ class MIDIv2 {
 	}
 	
 	_midiInMoreData(wParam, lParam, msg, hwnd) {
-		OutputDebug "more data..."
+		OutputDebug "midiInMoreData - lParam=" lParam
 	}
 	_midiInError(wParam, lParam, msg, hwnd) {
-		OutputDebug "Error: lParam: " lParam
+		OutputDebug "midiInError - lParam=" lParam
 	}
 	_midiInLongError(wParam, lParam, msg, hwnd) {
-		OutputDebug "LongError: lParam: " lParam
+		OutputDebug "midiInLongError - lParam=" lParam
 	}
 	
 	; Error checks
